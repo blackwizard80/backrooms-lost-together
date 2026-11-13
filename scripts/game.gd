@@ -168,20 +168,17 @@ func join_game(ip: String) -> void:
 	status_label.text = "Connecting to "+ip+"..."
 
 func _on_peer_connected(id: int) -> void:
+	# The server announces the new peer to every connected device.
 	_spawn_player(id)
-	_sync_existing_players.rpc_id(id)
+	_spawn_remote_player.rpc(id)
+	# Also send every already-connected player to the newcomer.
+	for existing_id in players.keys():
+		_spawn_remote_player.rpc_id(id, int(existing_id))
 
-@rpc("authority", "call_remote", "reliable")
-func _sync_existing_players() -> void:
-	for id in players.keys():
-		if id != multiplayer.get_unique_id():
-			_receive_spawn.rpc_id(id, int(id), players[id].global_position)
-
-@rpc("authority", "call_remote", "reliable")
-func _receive_spawn(id: int, pos: Vector3) -> void:
+@rpc("authority", "call_local", "reliable")
+func _spawn_remote_player(id: int) -> void:
 	if not players.has(id):
 		_spawn_player(id)
-	players[id].global_position = pos
 
 func _on_peer_disconnected(id: int) -> void:
 	if players.has(id):
@@ -242,5 +239,12 @@ func _process(delta: float) -> void:
 			monster.velocity = dir * 2.3
 			monster.move_and_slide()
 			monster.look_at(Vector3(target.global_position.x,monster.global_position.y,target.global_position.z))
+		_sync_monster.rpc(monster.global_position, monster.rotation.y)
 			if best < 1.25:
 				status_label.text = "THE WATCHER FOUND YOU — regroup and try again"
+
+@rpc("authority", "call_remote", "unreliable")
+func _sync_monster(pos: Vector3, yaw: float) -> void:
+	if not multiplayer.is_server() and is_instance_valid(monster):
+		monster.global_position = monster.global_position.lerp(pos, 0.7)
+		monster.rotation.y = yaw
