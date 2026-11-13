@@ -240,8 +240,8 @@ func _process(delta: float) -> void:
 			monster.move_and_slide()
 			monster.look_at(Vector3(target.global_position.x,monster.global_position.y,target.global_position.z))
 		_sync_monster.rpc(monster.global_position, monster.rotation.y)
-			if best < 1.25:
-				status_label.text = "THE WATCHER FOUND YOU — regroup and try again"
+		if best < 1.25:
+			status_label.text = "THE WATCHER FOUND YOU — regroup and try again"
 
 @rpc("authority", "call_remote", "unreliable")
 func _sync_monster(pos: Vector3, yaw: float) -> void:
