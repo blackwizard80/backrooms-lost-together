@@ -1,0 +1,109 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+
+      - name: Download Godot and Android export templates
+        env:
+          GODOT_VERSION: 4.7.2
+        run: |
+          mkdir -p "$RUNNER_TEMP/godot" "$RUNNER_TEMP/templates"
+          curl -fL "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip" -o "$RUNNER_TEMP/godot.zip"
+          curl -fL "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_export_templates.tpz" -o "$RUNNER_TEMP/templates.tpz"
+          unzip -q "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot"
+          unzip -q "$RUNNER_TEMP/templates.tpz" -d "$RUNNER_TEMP/templates"
+          chmod +x "$RUNNER_TEMP/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64"
+          echo "GODOT_BIN=$RUNNER_TEMP/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64" >> "$GITHUB_ENV"
+          mkdir -p "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          cp -a "$RUNNER_TEMP/templates/templates/." "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/"
+
+      - name: Restore Godot project
+        run: |
+          base64 -d backrooms_project.zip.b64 > "$RUNNER_TEMP/backrooms-project.zip"
+          mkdir -p "$RUNNER_TEMP/game"
+          unzip -q "$RUNNER_TEMP/backrooms-project.zip" -d "$RUNNER_TEMP/game"
+          echo "PROJECT_DIR=$RUNNER_TEMP/game/backrooms_lost_together" >> "$GITHUB_ENV"
+
+      - name: Configure Android export preset
+        run: |
+          cat > "$PROJECT_DIR/export_presets.cfg" <<'EOF'
+          [preset.0]
+          name="Android"
+          platform="Android"
+          runnable=true
+          dedicated_server=false
+          custom_features=""
+          export_filter="all_resources"
+          include_filter=""
+          exclude_filter=""
+          export_path="build/backrooms-lost-together.apk"
+          encryption_include_filters=""
+          encryption_exclude_filters=""
+          encrypt_pck=false
+          encrypt_directory=false
+
+          [preset.0.options]
+          custom_template/debug=""
+          custom_template/release=""
+          gradle_build/use_gradle_build=false
+          architectures/armeabi-v7a=false
+          architectures/arm64-v8a=true
+          version/code=1
+          version/name="1.0"
+          package/unique_name="com.blackwizard.backroomslosttogether"
+          package/name="BACKROOMS LOST TOGETHER"
+          screen/orientation=1
+          permissions/internet=true
+          EOF
+          mkdir -p "$PROJECT_DIR/build"
+          mkdir -p "$HOME/.config/godot"
+          cat > "$HOME/.config/godot/editor_settings-4.tres" <<EOF
+          [gd_resource type="EditorSettings" format=3]
+          [resource]
+          export/android/android_sdk_path = "$ANDROID_HOME"
+          export/android/java_sdk_path = "$JAVA_HOME"
+          EOF
+
+      - name: Import and validate project
+        run: |
+          "$GODOT_BIN" --headless --editor --path "$PROJECT_DIR" --quit
+
+      - name: Export Android APK
+        run: |
+          "$GODOT_BIN" --headless --path "$PROJECT_DIR" --export-debug "Android" "$PROJECT_DIR/build/backrooms-lost-together.apk"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: backrooms-lost-together-android-apk
+          path: ${{ env.PROJECT_DIR }}/build/backrooms-lost-together.apk
+          if-no-files-found: error
+          retention-days: 14
